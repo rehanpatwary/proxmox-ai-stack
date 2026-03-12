@@ -41,7 +41,7 @@
 # Note: -e is omitted intentionally so individual VM failures don't abort
 # the script. Each VM runs in an isolated subshell with its own set -e.
 set -uo pipefail
-source "$(dirname "$0")/config.env"
+source "$(dirname "$0")/../config.env"
 
 # ---------------------------------------------------------------------------
 #  Logging helpers

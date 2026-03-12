@@ -33,7 +33,7 @@
 #    # Then wait ~60s for cloud-init, then: bash deploy_all.sh
 # =============================================================================
 set -euo pipefail
-source "$(dirname "$0")/config.env"
+source "$(dirname "$0")/../config.env"
 
 # ---------------------------------------------------------------------------
 #  Logging helpers
