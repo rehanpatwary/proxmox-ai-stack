@@ -28,3 +28,6 @@ deploy.log
 # Temporary files
 /tmp/
 *.tmp
+
+# Git worktrees
+.worktrees/

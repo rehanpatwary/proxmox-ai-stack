@@ -18,6 +18,19 @@ A fully automated deployment pipeline for a self-hosted AI and business automati
 
 ---
 
+## Repository Layout
+
+This repository is structured to support multiple stacks:
+
+```
+/
+└── proxmox-ai-stack/   ← Proxmox VE + 5 Ubuntu VMs + optional LXC layer
+```
+
+See [proxmox-ai-stack/README.md](proxmox-ai-stack/README.md) for the full quick-start guide.
+
+---
+
 ## Architecture
 
 ```
@@ -101,10 +114,10 @@ git clone https://github.com/yourname/proxmox-ai-stack.git
 cd proxmox-ai-stack
 
 # 2. Edit network settings and paste your SSH public key
-nano config.env
+nano proxmox-ai-stack/config.env
 
 # 3. Generate secrets once — writes static values back into config.env
-bash init_secrets.sh
+bash proxmox-ai-stack/host/init-secrets.sh
 
 # 4. Copy the entire directory to the Proxmox host
 scp -r . root@<proxmox-ip>:/root/proxmox-ai-stack/
@@ -113,10 +126,10 @@ scp -r . root@<proxmox-ip>:/root/proxmox-ai-stack/
 ssh root@<proxmox-ip>
 cd /root/proxmox-ai-stack
 
-bash 00_gpu_passthrough.sh   # configure VFIO, then reboot
+bash proxmox-ai-stack/host/setup-gpu.sh   # configure VFIO, then reboot
 # --- reboot ---
-bash 01_create_vms.sh        # provision all 5 VMs
-bash deploy_all.sh           # install services on every VM
+bash proxmox-ai-stack/host/create-vms.sh  # provision all 5 VMs
+bash proxmox-ai-stack/host/deploy-all.sh  # install services on every VM
 ```
 
 Total time: approximately 20–30 minutes (dominated by package and model downloads).

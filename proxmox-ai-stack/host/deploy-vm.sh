@@ -31,7 +31,7 @@
 #  VALID VM NAMES:  ai | data | automation | monitoring | coding
 # =============================================================================
 set -euo pipefail
-source "$(dirname "$0")/config.env"
+source "$(dirname "$0")/../config.env"
 
 # ---------------------------------------------------------------------------
 #  Logging helpers
@@ -86,11 +86,11 @@ fi
 resolve_vm() {
     local vm_name="$1"
     case "$vm_name" in
-        ai)         VM_IP="$AI_VM_IP";         SUBDIR="ai-vm"         ;;
-        data)       VM_IP="$DATA_VM_IP";       SUBDIR="data-vm"       ;;
-        automation) VM_IP="$AUTOMATION_VM_IP"; SUBDIR="automation-vm" ;;
-        monitoring) VM_IP="$MONITORING_VM_IP"; SUBDIR="monitoring"    ;;
-        coding)     VM_IP="$CODING_VM_IP";     SUBDIR="coding-vm"     ;;
+        ai)         VM_IP="$AI_VM_IP";         SUBDIR="ai"         ;;
+        data)       VM_IP="$DATA_VM_IP";       SUBDIR="data"       ;;
+        automation) VM_IP="$AUTOMATION_VM_IP"; SUBDIR="automation" ;;
+        monitoring) VM_IP="$MONITORING_VM_IP"; SUBDIR="monitoring" ;;
+        coding)     VM_IP="$CODING_VM_IP";     SUBDIR="coding"     ;;
         *)
             error "Unknown VM: '$vm_name'. Valid names: ai | data | automation | monitoring | coding"
             ;;
@@ -171,11 +171,11 @@ copy_scripts() {
     local subdir="$2"
 
     section "Copying scripts → ${VM_NAME} (${host})"
-    scp $SSH_OPTS -r "${SCRIPT_DIR}/${subdir}/" "${VM_USER}@${host}:/home/${VM_USER}/"
+    scp $SSH_OPTS -r "${SCRIPT_DIR}/../vms/${subdir}/" "${VM_USER}@${host}:/home/${VM_USER}/"
     info "Scripts copied to /home/${VM_USER}/${subdir}/ ✓"
 
     # Copy shared utilities so setup.sh can source common/bootstrap.sh
-    scp $SSH_OPTS -r "${SCRIPT_DIR}/common/" "${VM_USER}@${host}:/home/${VM_USER}/"
+    scp $SSH_OPTS -r "${SCRIPT_DIR}/../vms/common/" "${VM_USER}@${host}:/home/${VM_USER}/"
     info "Common scripts copied to /home/${VM_USER}/common/ ✓"
 }
 
@@ -224,7 +224,7 @@ fi
 if [[ $DRY_RUN -eq 1 ]]; then
     section "DRY RUN — would deploy: $VM_NAME"
     echo "  Target IP  : $VM_IP"
-    echo "  Script dir : $SCRIPT_DIR/$SUBDIR"
+    echo "  Script dir : $SCRIPT_DIR/../vms/$SUBDIR"
     echo ""
     echo "  Environment that would be exported:"
     build_env_block | sed 's/^/    /'

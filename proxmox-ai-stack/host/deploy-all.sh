@@ -41,7 +41,7 @@
 # Note: -e is omitted intentionally so individual VM failures don't abort
 # the script. Each VM runs in an isolated subshell with its own set -e.
 set -uo pipefail
-source "$(dirname "$0")/config.env"
+source "$(dirname "$0")/../config.env"
 
 # ---------------------------------------------------------------------------
 #  Logging helpers
@@ -147,7 +147,8 @@ deploy_vm() {
     (
         set -e
         wait_for_ssh "$host"
-        scp $SSH_OPTS -r "${SCRIPT_DIR}/${subdir}/" "${VM_USER}@${host}:/home/${VM_USER}/"
+        scp $SSH_OPTS -r "${SCRIPT_DIR}/../vms/${subdir}/" "${VM_USER}@${host}:/home/${VM_USER}/"
+        scp $SSH_OPTS -r "${SCRIPT_DIR}/../vms/common/" "${VM_USER}@${host}:/home/${VM_USER}/"
         local env_block
         env_block="$(build_env)"
         ssh $SSH_OPTS -t "${VM_USER}@${host}" "
@@ -183,14 +184,14 @@ info "Order: data → ai → automation → monitoring → coding"
 info "Each VM is attempted even if a previous one failed."
 
 # data-vm first: Postgres must be running before n8n, Flowise, and AnythingLLM start
-deploy_vm "data"       "$DATA_VM_IP"       "data-vm"
+deploy_vm "data"       "$DATA_VM_IP"       "data"
 info "Pausing 10s for Postgres to complete initialisation..."
 sleep 10
 
-deploy_vm "ai"         "$AI_VM_IP"         "ai-vm"
-deploy_vm "automation" "$AUTOMATION_VM_IP" "automation-vm"
+deploy_vm "ai"         "$AI_VM_IP"         "ai"
+deploy_vm "automation" "$AUTOMATION_VM_IP" "automation"
 deploy_vm "monitoring" "$MONITORING_VM_IP" "monitoring"
-deploy_vm "coding"     "$CODING_VM_IP"     "coding-vm"
+deploy_vm "coding"     "$CODING_VM_IP"     "coding"
 
 # ---------------------------------------------------------------------------
 #  Summary table

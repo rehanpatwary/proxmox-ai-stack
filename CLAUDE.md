@@ -6,35 +6,41 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is a Proxmox VE automation project for deploying a self-hosted AI stack across 5 Ubuntu VMs. All scripts are Bash and run either on the **Proxmox host** (as root) or **inside individual VMs** (as root via sudo).
 
-The repository contains one folder: `vm-lxc-stack/` — the primary, actively maintained stack.
+The repository contains one folder: `proxmox-ai-stack/` — the primary, actively maintained stack.
 
 ## Project Structure
 
 ```
-vm-lxc-stack/
+proxmox-ai-stack/
   config.env               ← single source of truth for all config (IPs, VM IDs, secrets)
-  init_secrets.sh          ← run ONCE to generate secrets into config.env
-  00_gpu_passthrough.sh    ← run on Proxmox host → reboot
-  01_create_vms.sh         ← creates all 5 VMs; supports USE_TEMPLATE=1 for clone-based workflow
-  create_template.sh       ← builds a reusable Ubuntu Proxmox template (VMID 199)
-  deploy_all.sh            ← orchestrates all 5 VMs via SSH
-  deploy_vm.sh             ← deploys a single VM; supports --dry-run, --no-wait
-  export_env.sh            ← helper to source config.env for manual use
-  wire_lxc_to_vms.sh       ← connects LXC containers to VM services
-  deploy_lxc_stack.sh      ← deploys optional LXC services, skipping VM-hosted services
-  lxc-stack.sh             ← 60+ optional LXC services in 10 phases
-  common/
-    bootstrap.sh           ← shared VM hygiene: chrony, journald limits, TRIM, admin tools
-  ai-vm/
-    setup.sh               ← NVIDIA drivers, Docker, full AI tool stack (15 services)
-  coding-vm/
-    setup.sh               ← OpenCode + Continue IDE pointing at ai-vm Ollama
-  data-vm/
-    setup.sh               ← Postgres 16 + pgvector + pgAdmin
-  automation-vm/
-    setup.sh               ← n8n + Flowise
-  monitoring/
-    setup.sh               ← Prometheus + Grafana + Alertmanager
+  host/                    ← run these ON the Proxmox host (as root)
+    setup-gpu.sh           ← GPU passthrough setup + reboot
+    init-secrets.sh        ← run ONCE to generate secrets into config.env
+    create-template.sh     ← builds a reusable Ubuntu Proxmox template (VMID 199)
+    create-vms.sh          ← creates all 5 VMs; supports USE_TEMPLATE=1 for clone-based workflow
+    deploy-all.sh          ← orchestrates all 5 VMs via SSH
+    deploy-vm.sh           ← deploys a single VM; supports --dry-run, --no-wait
+    export-env.sh          ← helper to source config.env for manual use
+  vms/                     ← deployed TO each VM via SSH
+    common/
+      bootstrap.sh         ← shared VM hygiene: chrony, journald limits, TRIM, admin tools
+    ai/
+      setup.sh             ← orchestrator: NVIDIA drivers, Docker, full AI tool stack (15 services)
+      install-nvidia.sh    ← NVIDIA driver + container toolkit
+      install-docker.sh    ← Docker CE + Compose
+      generate-compose.sh  ← writes docker-compose.yml
+    coding/
+      setup.sh             ← OpenCode + Continue IDE pointing at ai-vm Ollama
+    data/
+      setup.sh             ← Postgres 16 + pgvector + pgAdmin
+    automation/
+      setup.sh             ← n8n + Flowise
+    monitoring/
+      setup.sh             ← Prometheus + Grafana + Alertmanager
+  lxc/                     ← optional: 60+ extra LXC containers
+    deploy-stack.sh        ← entry point (interactive or --all/--phase N)
+    wire-to-vms.sh         ← connects LXC containers to VM services
+    apps.sh                ← 60+ app definitions across 10 phases
   docs/
     lxc-integration.md
     troubleshooting.md
@@ -50,66 +56,66 @@ vm-lxc-stack/
 | automation-vm | 10.0.3.40 | n8n (:5678), Flowise (:3002), node-exporter (:9100) |
 | monitoring-vm | 10.0.3.50 | Grafana (:3003), Prometheus (:9090), Alertmanager (:9093), node-exporter (:9100) |
 
-Template VM (VMID 199) is ephemeral — created by `create_template.sh`, used for cloning, not running.
+Template VM (VMID 199) is ephemeral — created by `host/create-template.sh`, used for cloning, not running.
 
 ## Deployment Sequence
 
 ```bash
 # 1. Configure
-nano vm-lxc-stack/config.env         # set IPs, SSH key, STORAGE, BRIDGE
-bash vm-lxc-stack/init_secrets.sh    # generates secrets once into config.env
+nano proxmox-ai-stack/config.env              # set IPs, SSH key, STORAGE, BRIDGE
+bash proxmox-ai-stack/host/init-secrets.sh   # generates secrets once into config.env
 
 # 2. GPU passthrough (Proxmox host as root)
-bash 00_gpu_passthrough.sh
+bash proxmox-ai-stack/host/setup-gpu.sh
 reboot
 
 # 3a. Create VMs — direct import (default)
-bash 01_create_vms.sh
+bash proxmox-ai-stack/host/create-vms.sh
 
 # 3b. Create VMs — template-based (faster, recommended for rebuilds)
-bash create_template.sh              # once: builds frozen template VMID 199
-USE_TEMPLATE=1 bash 01_create_vms.sh # clones template instead of re-importing
+bash proxmox-ai-stack/host/create-template.sh              # once: builds frozen template VMID 199
+USE_TEMPLATE=1 bash proxmox-ai-stack/host/create-vms.sh   # clones template instead of re-importing
 
 # 4. Deploy all services
-bash deploy_all.sh
+bash proxmox-ai-stack/host/deploy-all.sh
 
 # Or deploy a single VM
-bash deploy_vm.sh ai
-bash deploy_vm.sh data --no-wait     # skip SSH wait if VM already up
-bash deploy_vm.sh ai --dry-run       # preview without executing
+bash proxmox-ai-stack/host/deploy-vm.sh ai
+bash proxmox-ai-stack/host/deploy-vm.sh data --no-wait     # skip SSH wait if VM already up
+bash proxmox-ai-stack/host/deploy-vm.sh ai --dry-run       # preview without executing
 
 # 5. Optional: deploy LXC services (60+ apps in 10 phases)
-bash deploy_lxc_stack.sh             # interactive menu
-bash deploy_lxc_stack.sh --all       # deploy everything
-bash deploy_lxc_stack.sh --phase 4   # deploy phase 4 (Business/Finance)
+bash proxmox-ai-stack/lxc/deploy-stack.sh             # interactive menu
+bash proxmox-ai-stack/lxc/deploy-stack.sh --all       # deploy everything
+bash proxmox-ai-stack/lxc/deploy-stack.sh --phase 4   # deploy phase 4 (Business/Finance)
 ```
 
 ## Key Design Patterns
 
-- **`config.env` is the source of truth** — all scripts source it via `source "$(dirname "$0")/config.env"` (path relative to the script, not `$PWD`). Never hardcode IPs or credentials in scripts.
-- **Secrets flow**: `init_secrets.sh` writes static values into `config.env`. `deploy_vm.sh` builds an `ENV_BLOCK` using `build_env_block()`, single-quoting every value (`export KEY='VALUE'`) to prevent special characters (`$`, `!`) from being misinterpreted by the remote shell. The remote `setup.sh` is invoked with `sudo -E` to preserve the exports.
-- **Idempotency**: Each `setup.sh` checks if software is already installed before installing. VM creation skips existing VM IDs. `common/bootstrap.sh` uses a sentinel file (`/var/lib/vm-bootstrap-done`) to skip on re-runs.
+- **`config.env` is the source of truth** — all scripts source it via `source "$(dirname "$0")/../config.env"` (path relative to the script, not `$PWD`). Never hardcode IPs or credentials in scripts.
+- **Secrets flow**: `host/init-secrets.sh` writes static values into `config.env`. `host/deploy-vm.sh` builds an `ENV_BLOCK` using `build_env_block()`, single-quoting every value (`export KEY='VALUE'`) to prevent special characters (`$`, `!`) from being misinterpreted by the remote shell. The remote `setup.sh` is invoked with `sudo -E` to preserve the exports.
+- **Idempotency**: Each `setup.sh` checks if software is already installed before installing. VM creation skips existing VM IDs. `vms/common/bootstrap.sh` uses a sentinel file (`/var/lib/vm-bootstrap-done`) to skip on re-runs.
 - **Common bootstrap**: Every `setup.sh` sources `../common/bootstrap.sh` as its first step. This installs admin tools (htop, tmux, chrony, nvme-cli, smartmontools, pciutils, ethtool), enables NTP, caps journald, and enables SSD TRIM. Deploy runs this exactly once per VM.
-- **deploy_all.sh** runs each VM in a subshell so failures don't abort the whole deployment; results are summarized at the end. Redeploy failed VMs with `bash deploy_vm.sh <name>`.
-- **deploy_vm.sh** copies both the VM-specific subdir AND `common/` to the remote VM so `bootstrap.sh` is available.
+- **host/deploy-all.sh** runs each VM in a subshell so failures don't abort the whole deployment; results are summarized at the end. Redeploy failed VMs with `bash proxmox-ai-stack/host/deploy-vm.sh <name>`.
+- **host/deploy-vm.sh** copies both the VM-specific subdir AND `vms/common/` to the remote VM so `bootstrap.sh` is available.
 - **vm setup scripts** are run remotely via `ssh -t` with env vars injected — they must not rely on interactive prompts and must be run as root.
-- **Template workflow**: `create_template.sh` builds VMID 199 from the Ubuntu cloud image. `01_create_vms.sh` with `USE_TEMPLATE=1` uses `qm clone` instead of re-importing the cloud image for each VM — significantly faster for rebuilds.
+- **Template workflow**: `host/create-template.sh` builds VMID 199 from the Ubuntu cloud image. `host/create-vms.sh` with `USE_TEMPLATE=1` uses `qm clone` instead of re-importing the cloud image for each VM — significantly faster for rebuilds.
 
 ## Configuration
 
-Before any deployment, edit `vm-lxc-stack/config.env`:
+Before any deployment, edit `proxmox-ai-stack/config.env`:
 - `SSH_PUBLIC_KEY` — your ed25519 public key
 - `STORAGE` — Proxmox storage pool name (check with `pvesm status`)
 - `BRIDGE` — network bridge (check with `ip link show`)
 - `GATEWAY` / `*_VM_IP` — match your network
 - `TEMPLATE_VMID` — VMID for the reusable template (default: 199; must not conflict with VMs 200-204 or LXC 400+)
-- Secrets (`POSTGRES_PASSWORD`, etc.) — set by `init_secrets.sh`, never manually
+- Secrets (`POSTGRES_PASSWORD`, etc.) — set by `host/init-secrets.sh`, never manually
 
 **Never** assign secrets using `$(openssl rand ...)` directly in `config.env` — command substitutions re-execute on every `source`, generating a new value each time and breaking all services that rely on a consistent password.
 
 ## AI VM Docker Stack
 
-`ai-vm/setup.sh` generates `/opt/ai-stack/docker-compose.yml` at runtime. All 15 services share the `ai-net` bridge network. GPU-dependent services (Ollama, Whisper, nvidia-exporter) use `deploy.resources.reservations.devices`.
+`vms/ai/setup.sh` (via `generate-compose.sh`) generates `/opt/ai-stack/docker-compose.yml` at runtime. All 15 services share the `ai-net` bridge network. GPU-dependent services (Ollama, Whisper, nvidia-exporter) use `deploy.resources.reservations.devices`.
 
 Key tool server architecture:
 - **MCPO** (:8081) — proxies stdio MCP servers (time, fetch, thinking, filesystem, memory, git) to HTTP/OpenAPI
@@ -129,14 +135,14 @@ cat /opt/ai-stack/mcpo-api-key.txt            # retrieve MCPO API key
 
 ## LXC Stack (Optional Extension)
 
-`lxc-stack.sh` deploys 60+ community-script LXC containers (VMIDs 400-499) across 10 phases without touching the 5 VMs.
+`lxc/apps.sh` deploys 60+ community-script LXC containers (VMIDs 400-499) across 10 phases without touching the 5 VMs.
 
-**Always use `deploy_lxc_stack.sh` as the entry point**, never call `lxc-stack.sh` directly when VMs are running. The wrapper does three things before handing off via `exec`:
-1. Pre-marks VM-hosted services (ollama, open-webui, n8n, postgresql, grafana, etc.) in `/root/.proxmox-ai-deploy-state` so `lxc-stack.sh` skips them
+**Always use `lxc/deploy-stack.sh` as the entry point**, never call `lxc/apps.sh` directly when VMs are running. The wrapper does three things before handing off via `exec`:
+1. Pre-marks VM-hosted services (ollama, open-webui, n8n, postgresql, grafana, etc.) in `/root/.proxmox-ai-deploy-state` so `lxc/apps.sh` skips them
 2. Exports VM endpoints under multiple naming conventions (`OLLAMA_BASE_URL`, `DATABASE_HOST`, `POSTGRES_HOST`, `DB_HOST`, etc.) to cover the varying env var names used by different community scripts
 3. Passes `BRIDGE`, `GATEWAY`, `STORAGE` from `config.env` to the LXC deployer
 
-`lxc-stack.sh` tracks state in `/root/.proxmox-ai-deploy-state` (one app name per line). The interactive `--phase N` mode shows a checkbox UI — new apps are numbered/pre-selected, existing Proxmox containers show as `[✓ skip]`, state-file entries with no matching VMID show as `[! MISSING]`. The `--all` flag bypasses the UI entirely (batch mode).
+`lxc/apps.sh` tracks state in `/root/.proxmox-ai-deploy-state` (one app name per line). The interactive `--phase N` mode shows a checkbox UI — new apps are numbered/pre-selected, existing Proxmox containers show as `[✓ skip]`, state-file entries with no matching VMID show as `[! MISSING]`. The `--all` flag bypasses the UI entirely (batch mode).
 
 LXC phases: Infrastructure → AI & LLM → Automation → Business/Finance → Documents/Knowledge → Communication → Monitoring → Workspace/Storage → Security/Identity → Dev/Code
 
@@ -198,18 +204,18 @@ Never use `|| true` to silently swallow errors unless the failure is expected an
 ## Extending the Stack
 
 ### Adding a new VM role
-1. Create `<role>-vm/setup.sh` following the structure of existing setup scripts.
-2. Add IP, VMID, and resource variables to `config.env`.
-3. Add the VM to `deploy_all.sh` in dependency order and as a `case` in `deploy_vm.sh`.
-4. Add the VM's `node-exporter` endpoint to `monitoring/prometheus.yml`.
+1. Create `vms/<role>/setup.sh` following the structure of existing setup scripts.
+2. Add IP, VMID, and resource variables to `proxmox-ai-stack/config.env`.
+3. Add the VM to `host/deploy-all.sh` in dependency order and as a `case` in `host/deploy-vm.sh`.
+4. Add the VM's `node-exporter` endpoint to `vms/monitoring/prometheus.yml`.
 
 ### Adding a new LXC app or phase
-1. Add entries to the `APPS` array in `lxc-stack.sh`:
+1. Add entries to the `APPS` array in `lxc/apps.sh`:
    ```
    "VMID|NAME|SCRIPT_NAME|TYPE|CPU|RAM|DISK|PHASE|CATEGORY|DESCRIPTION"
    ```
-2. If the service connects to a VM (Ollama, Postgres), add a wiring block to `wire_lxc_to_vms.sh`.
-3. If the service duplicates one already in a VM, add it to `mark_vm_services_as_deployed()` in `deploy_lxc_stack.sh`.
+2. If the service connects to a VM (Ollama, Postgres), add a wiring block to `lxc/wire-to-vms.sh`.
+3. If the service duplicates one already in a VM, add it to `mark_vm_services_as_deployed()` in `lxc/deploy-stack.sh`.
 
 ## Commit Message Format
 

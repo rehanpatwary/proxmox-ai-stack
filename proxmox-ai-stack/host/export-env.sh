@@ -31,7 +31,7 @@
 #
 #  VALID VM NAMES:  ai | data | automation | monitoring | coding
 # =============================================================================
-source "$(dirname "$0")/config.env"
+source "$(dirname "$0")/../config.env"
 
 # ---------------------------------------------------------------------------
 #  Argument validation
