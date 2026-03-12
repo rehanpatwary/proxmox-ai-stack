@@ -129,6 +129,13 @@ step()    { echo -e "${CYAN}  →${NC} $*"; }
 [[ $EUID -ne 0 ]] && error "Run as root:  sudo -E bash setup.sh"
 
 # ---------------------------------------------------------------------------
+#  Common VM bootstrap (chrony, journald limits, TRIM, admin tools)
+#  Runs once; idempotent on re-runs.
+# ---------------------------------------------------------------------------
+# shellcheck source=../common/bootstrap.sh
+source "$(dirname "$0")/../common/bootstrap.sh"
+
+# ---------------------------------------------------------------------------
 #  Config — injected by deploy_vm.sh via env exports; safe defaults shown
 # ---------------------------------------------------------------------------
 ANYTHINGLLM_JWT_SECRET="${ANYTHINGLLM_JWT_SECRET:-}"

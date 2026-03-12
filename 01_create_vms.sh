@@ -48,8 +48,43 @@ error()   { echo -e "${RED}[ERROR]${NC} $*"; exit 1; }
 [[ $EUID -ne 0 ]] && error "Must run as root on the Proxmox host"
 
 # ---------------------------------------------------------------------------
+#  Template mode flag
+#  Set USE_TEMPLATE=1 to clone VMs from a pre-built template (TEMPLATE_VMID)
+#  instead of importing the cloud image for each VM.
+#  Default: 0 (direct cloud image import — original behaviour).
+#
+#  Usage:
+#    USE_TEMPLATE=1 bash 01_create_vms.sh
+# ---------------------------------------------------------------------------
+USE_TEMPLATE="${USE_TEMPLATE:-0}"
+
+# ---------------------------------------------------------------------------
 #  Functions
 # ---------------------------------------------------------------------------
+
+##
+# Verify the template VM exists and is frozen as a Proxmox template.
+#
+# Called at the start of main when USE_TEMPLATE=1 to fail fast with a clear
+# error rather than silently falling back or producing a broken clone.
+#
+# Exits with error if:
+#   - TEMPLATE_VMID does not exist in Proxmox
+#   - TEMPLATE_VMID exists but has not been converted to a template
+##
+check_template() {
+    section "Template Check (VMID ${TEMPLATE_VMID})"
+
+    if ! qm status "$TEMPLATE_VMID" &>/dev/null; then
+        error "Template VMID ${TEMPLATE_VMID} not found. Run  bash create_template.sh  first."
+    fi
+
+    if ! qm config "$TEMPLATE_VMID" 2>/dev/null | grep -q "^template:"; then
+        error "VMID ${TEMPLATE_VMID} exists but is not a template. Run  bash create_template.sh  to build it."
+    fi
+
+    info "Template ${TEMPLATE_VMID} found ✓"
+}
 
 ##
 # Download the Ubuntu cloud image if it does not already exist locally.
@@ -119,38 +154,70 @@ create_vm() {
         return 0
     fi
 
-    # Create the VM skeleton without any disk
-    qm create "$vm_id" \
-        --name     "$vm_name" \
-        --memory   "$ram" \
-        --cores    "$cores" \
-        --cpu      host \
-        --net0     virtio,bridge="$BRIDGE" \
-        --ostype   l26 \
-        --bios     ovmf \
-        --machine  q35 \
-        --efidisk0 "${STORAGE}:0,efitype=4m" \
-        --scsihw   virtio-scsi-pci \
-        --serial0  socket \
-        --vga      serial0 \
-        --agent    enabled=1 \
-        --onboot   1
+    if [[ "$USE_TEMPLATE" == "1" ]]; then
+        # ── Template clone path ───────────────────────────────────────────────
+        # Full clone from the frozen template — no cloud image re-import needed.
+        # Each clone gets its own independent disk (--full), so VMs are isolated.
+        info "Cloning from template ${TEMPLATE_VMID}..."
+        qm clone "$TEMPLATE_VMID" "$vm_id" \
+            --name "$vm_name" \
+            --full \
+            --storage "$STORAGE"
 
-    # Import the cloud image as a QCOW2 disk attached to the SCSI controller
-    qm importdisk "$vm_id" "$CLOUD_IMAGE_PATH" "$STORAGE" --format qcow2
-    qm set "$vm_id" \
-        --scsi0 "${STORAGE}:vm-${vm_id}-disk-1,size=${disk_size}G,discard=on,ssd=1"
-    qm set "$vm_id" --boot order=scsi0
-    qm resize "$vm_id" scsi0 "${disk_size}G"
+        # Apply this VM's specific resource allocation (template used 2GB/2 cores)
+        qm set "$vm_id" \
+            --memory "$ram" \
+            --cores  "$cores" \
+            --onboot 1
 
-    # Attach the cloud-init drive (provides network/user config on first boot)
-    qm set "$vm_id" --ide2 "${STORAGE}:cloudinit"
-    qm set "$vm_id" \
-        --ciuser    "$VM_USER" \
-        --cipassword "$VM_PASSWORD" \
-        --sshkeys   <(echo "$SSH_PUBLIC_KEY") \
-        --ipconfig0 "ip=${ip}/${SUBNET_MASK},gw=${GATEWAY}" \
-        --nameserver "$NAMESERVER"
+        # Resize disk to match the role-specific allocation
+        qm resize "$vm_id" scsi0 "${disk_size}G"
+
+        # Set cloud-init config specific to this VM (IP, user, SSH key)
+        qm set "$vm_id" \
+            --ciuser     "$VM_USER" \
+            --cipassword "$VM_PASSWORD" \
+            --sshkeys    <(echo "$SSH_PUBLIC_KEY") \
+            --ipconfig0  "ip=${ip}/${SUBNET_MASK},gw=${GATEWAY}" \
+            --nameserver "$NAMESERVER"
+
+    else
+        # ── Direct cloud image import path (default) ──────────────────────────
+        # Original behaviour: import cloud image disk and build VM from scratch.
+
+        # Create the VM skeleton without any disk
+        qm create "$vm_id" \
+            --name     "$vm_name" \
+            --memory   "$ram" \
+            --cores    "$cores" \
+            --cpu      host \
+            --net0     virtio,bridge="$BRIDGE" \
+            --ostype   l26 \
+            --bios     ovmf \
+            --machine  q35 \
+            --efidisk0 "${STORAGE}:0,efitype=4m" \
+            --scsihw   virtio-scsi-pci \
+            --serial0  socket \
+            --vga      serial0 \
+            --agent    enabled=1 \
+            --onboot   1
+
+        # Import the cloud image as a QCOW2 disk attached to the SCSI controller
+        qm importdisk "$vm_id" "$CLOUD_IMAGE_PATH" "$STORAGE" --format qcow2
+        qm set "$vm_id" \
+            --scsi0 "${STORAGE}:vm-${vm_id}-disk-1,size=${disk_size}G,discard=on,ssd=1"
+        qm set "$vm_id" --boot order=scsi0
+        qm resize "$vm_id" scsi0 "${disk_size}G"
+
+        # Attach the cloud-init drive (provides network/user config on first boot)
+        qm set "$vm_id" --ide2 "${STORAGE}:cloudinit"
+        qm set "$vm_id" \
+            --ciuser     "$VM_USER" \
+            --cipassword "$VM_PASSWORD" \
+            --sshkeys    <(echo "$SSH_PUBLIC_KEY") \
+            --ipconfig0  "ip=${ip}/${SUBNET_MASK},gw=${GATEWAY}" \
+            --nameserver "$NAMESERVER"
+    fi
 
     # Apply any additional arguments (e.g. GPU hostpci for ai-vm)
     if [[ -n "$extra_args" ]]; then
@@ -207,7 +274,11 @@ detect_gpu_hostpci() {
 
 GPU_HOSTPCI=""
 
-download_cloud_image
+if [[ "$USE_TEMPLATE" == "1" ]]; then
+    check_template
+else
+    download_cloud_image
+fi
 detect_gpu_hostpci
 
 # Create VMs in order. ai-vm receives GPU_HOSTPCI; others have no extra args.
@@ -239,5 +310,9 @@ ${GREEN}════════════════════════
 
   Next step:
     bash deploy_all.sh
+
+  Tip — rebuild VMs faster next time using a template:
+    bash create_template.sh
+    USE_TEMPLATE=1 bash 01_create_vms.sh
 ${GREEN}════════════════════════════════════════════════════════${NC}
 EOF
