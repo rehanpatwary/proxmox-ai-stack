@@ -2,7 +2,7 @@
 # =============================================================================
 #  deploy_lxc_stack.sh — LXC Stack Integration Wrapper
 #
-#  Wraps the community-scripts LXC deployer (lxc-stack.sh) and integrates
+#  Wraps the community-scripts LXC deployer (apps.sh) and integrates
 #  it with the existing VM stack so that:
 #    - Services already running in VMs are not re-deployed as LXC containers
 #    - LXC containers that need Ollama or Postgres are pointed at the VMs
@@ -10,7 +10,7 @@
 #
 #  INTEGRATION MECHANISM
 #  ─────────────────────
-#  1. Pre-marks VM services in the deploy state file so lxc-stack.sh skips them
+#  1. Pre-marks VM services in the deploy state file so apps.sh skips them
 #  2. Exports VM IPs and secrets as environment variables that community scripts
 #     read during container setup
 #  3. Passes BRIDGE, GATEWAY, STORAGE from config.env to the LXC deployer
@@ -35,7 +35,7 @@
 #  REQUIREMENTS
 #  ────────────
 #  - Run as root on the Proxmox HOST
-#  - lxc-stack.sh must be present alongside this script
+#  - apps.sh must be present alongside this script
 #  - config.env must be populated (init_secrets.sh run)
 #
 #  USAGE
@@ -54,8 +54,8 @@ set -uo pipefail
 #  Resolve paths relative to this script (not $PWD)
 # ---------------------------------------------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-CONFIG="${SCRIPT_DIR}/config.env"
-LXC_SCRIPT="${SCRIPT_DIR}/lxc-stack.sh"
+CONFIG="${SCRIPT_DIR}/../config.env"
+LXC_SCRIPT="${SCRIPT_DIR}/apps.sh"
 
 # ---------------------------------------------------------------------------
 #  Logging helpers
@@ -71,7 +71,7 @@ error()   { echo -e "${RED}[ERROR]${NC} $*"; exit 1; }
 #  Guards
 # ---------------------------------------------------------------------------
 [[ ! -f "$CONFIG"     ]] && error "config.env not found at $CONFIG"
-[[ ! -f "$LXC_SCRIPT" ]] && error "lxc-stack.sh not found at $LXC_SCRIPT"
+[[ ! -f "$LXC_SCRIPT" ]] && error "apps.sh not found at $LXC_SCRIPT"
 [[ $EUID -ne 0        ]] && error "Must run as root on the Proxmox host"
 
 source "$CONFIG"
@@ -80,7 +80,7 @@ source "$CONFIG"
     error "Secrets not initialised. Run:  bash init_secrets.sh"
 
 # ---------------------------------------------------------------------------
-#  Deploy state file — shared with lxc-stack.sh
+#  Deploy state file — shared with apps.sh
 # ---------------------------------------------------------------------------
 DEPLOY_STATE="/root/.proxmox-ai-deploy-state"
 mkdir -p "$(dirname "$DEPLOY_STATE")"
@@ -93,7 +93,7 @@ touch "$DEPLOY_STATE"
 ##
 # Pre-mark VM-deployed services in the lxc-stack deploy state file.
 #
-# The community-scripts deployer (lxc-stack.sh) reads DEPLOY_STATE and skips
+# The community-scripts deployer (apps.sh) reads DEPLOY_STATE and skips
 # any service whose name appears in it. By writing VM service names here, we
 # prevent duplicate LXC containers from being created for services already
 # running in the VM layer.
@@ -132,7 +132,7 @@ mark_vm_services_as_deployed() {
 #
 # Many community-scripts containers read these variables during setup to
 # configure service connections. Exporting them here makes the values
-# available to every subprocess, including lxc-stack.sh and the containers
+# available to every subprocess, including apps.sh and the containers
 # it creates.
 #
 # Variables exported:
@@ -172,7 +172,7 @@ export_vm_endpoints() {
 }
 
 ##
-# Export network and storage config from config.env to lxc-stack.sh variables.
+# Export network and storage config from config.env to apps.sh variables.
 #
 # The community-scripts deployer reads these env vars to configure each
 # container's network and select the correct storage pool.
@@ -197,7 +197,7 @@ export_network_config() {
 }
 
 # ---------------------------------------------------------------------------
-#  Main — set up integration, then hand off to lxc-stack.sh
+#  Main — set up integration, then hand off to apps.sh
 # ---------------------------------------------------------------------------
 
 mark_vm_services_as_deployed
@@ -210,6 +210,6 @@ echo -e "  ${CYAN}VM-deployed services pre-marked — deployer will skip them.${
 echo -e "  ${CYAN}All VM endpoints exported to containers.${NC}"
 echo ""
 
-# exec replaces this process with lxc-stack.sh — all exports remain in scope
+# exec replaces this process with apps.sh — all exports remain in scope
 # All CLI arguments (--phase, --all, --dry-run, etc.) are passed through unchanged
 exec bash "$LXC_SCRIPT" "$@"
