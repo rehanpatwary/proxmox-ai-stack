@@ -116,43 +116,12 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-# ---------------------------------------------------------------------------
-#  Logging helpers
-# ---------------------------------------------------------------------------
-RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
-BLUE='\033[0;34m'; CYAN='\033[0;36m'; NC='\033[0m'
-
-info()    { echo -e "${GREEN}[INFO]${NC} $*"; }
-section() { echo -e "\n${BLUE}══ $* ══${NC}"; }
-warn()    { echo -e "${YELLOW}[WARN]${NC} $*"; }
-error()   { echo -e "${RED}[ERROR]${NC} $*"; exit 1; }
-step()    { echo -e "${CYAN}  →${NC} $*"; }
+# error() must be defined before sourcing bootstrap (used for root check below).
+# bootstrap.sh defines info/section/warn; it skips redefining if already present.
+RED='\033[0;31m'; NC='\033[0m'
+error() { echo -e "${RED}[ERROR]${NC} $*"; exit 1; }
 
 [[ $EUID -ne 0 ]] && error "Run as root:  sudo -E bash setup.sh"
-
-# ---------------------------------------------------------------------------
-#  Config — injected by deploy_vm.sh via env exports; safe defaults shown
-# ---------------------------------------------------------------------------
-ANYTHINGLLM_JWT_SECRET="${ANYTHINGLLM_JWT_SECRET:-}"
-POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-}"
-DATA_VM_IP="${DATA_VM_IP:-192.168.1.30}"
-BASE_DOMAIN="${BASE_DOMAIN:-ai.local}"
-VM_USER="${VM_USER:-ubuntu}"
-
-# MCPO API key — generated here if not provided; used to authenticate all
-# tool server calls from Open WebUI to MCPO and OpenAPI servers
-MCPO_API_KEY="${MCPO_API_KEY:-$(openssl rand -hex 16)}"
-
-# Brave Search API key — optional; enables Brave Search MCP server
-# Get a free key at: https://api.search.brave.com/
-BRAVE_API_KEY="${BRAVE_API_KEY:-}"
-
-# ---------------------------------------------------------------------------
-#  Guard: abort early if required secrets are missing
-# ---------------------------------------------------------------------------
-if [[ -z "$POSTGRES_PASSWORD" ]] || [[ -z "$ANYTHINGLLM_JWT_SECRET" ]]; then
-    error "Secrets are empty. Run  bash init_secrets.sh  on the Proxmox host first."
-fi
 
 # ── Bootstrap (system hygiene: NTP, journald, TRIM, admin tools) ─────────────
 # shellcheck source=../common/bootstrap.sh
@@ -183,66 +152,13 @@ save_api_key
 start_stack
 pull_default_model
 
-# ---------------------------------------------------------------------------
-#  Post-install summary
-# ---------------------------------------------------------------------------
+# ── Post-install summary ──────────────────────────────────────────────────────
 VM_IP=$(hostname -I | awk '{print $1}')
-
-cat <<EOF
-
-${GREEN}════════════════════════════════════════════════════════════════════${NC}
-  Full AI VM Stack is running!
-
-  ${BLUE}── Core Services ──────────────────────────────────────────────────${NC}
-  Open WebUI       → http://${VM_IP}:3000       (chat.${BASE_DOMAIN})
-  AnythingLLM      → http://${VM_IP}:3001       (docs.${BASE_DOMAIN})
-  Ollama API       → http://${VM_IP}:11434
-  Qdrant           → http://${VM_IP}:6333/dashboard
-  Whisper STT      → http://${VM_IP}:8000
-
-  ${BLUE}── Open WebUI Ecosystem ───────────────────────────────────────────${NC}
-  Open Terminal    → http://${VM_IP}:8080       (terminal.${BASE_DOMAIN})
-  MCPO Proxy       → http://${VM_IP}:8081       (mcpo.${BASE_DOMAIN})
-    ├── MCP docs   → http://${VM_IP}:8081/docs
-    ├── time       → http://${VM_IP}:8081/time/docs
-    ├── fetch      → http://${VM_IP}:8081/fetch/docs
-    ├── thinking   → http://${VM_IP}:8081/thinking/docs
-    ├── filesystem → http://${VM_IP}:8081/filesystem/docs
-    ├── memory     → http://${VM_IP}:8081/memory/docs
-    └── git        → http://${VM_IP}:8081/git/docs
-
-  ${BLUE}── OpenAPI Tool Servers ────────────────────────────────────────────${NC}
-  Filesystem       → http://${VM_IP}:8082/docs
-  Memory Graph     → http://${VM_IP}:8083/docs
-  Git              → http://${VM_IP}:8084/docs
-  SQL              → http://${VM_IP}:8085/docs
-
-  ${BLUE}── Search ──────────────────────────────────────────────────────────${NC}
-  SearXNG          → http://${VM_IP}:8086       (search.${BASE_DOMAIN})
-
-  ${BLUE}── API Key (for tool server auth) ─────────────────────────────────${NC}
-  MCPO_API_KEY: ${MCPO_API_KEY}
-  (also saved to /opt/ai-stack/mcpo-api-key.txt)
-
-  ${BLUE}── GPU ──────────────────────────────────────────────────────────────${NC}
-$(nvidia-smi --query-gpu=name,memory.total,driver_version \
-    --format=csv,noheader 2>/dev/null \
-    | sed 's/^/  /' \
-    || echo "  nvidia-smi not available — reboot may be required")
-
-  ${BLUE}── Post-install Steps ───────────────────────────────────────────────${NC}
-  1. Open http://${VM_IP}:3000 → create admin account
-  2. Settings → Tools → verify tool servers are connected (green)
-  3. Settings → Integrations → Open Terminal → verify connected
-  4. Pull production models:
-       docker exec ollama ollama pull qwen2.5-coder:32b
-       docker exec ollama ollama pull nomic-embed-text
-       docker exec ollama ollama pull deepseek-r1:32b
-
-  ${BLUE}── Useful Commands ─────────────────────────────────────────────────${NC}
-  All logs:      docker compose -f /opt/ai-stack/docker-compose.yml logs -f
-  Single log:    docker logs -f mcpo
-  Update all:    cd /opt/ai-stack && docker compose pull && docker compose up -d
-  Reload nginx:  docker exec nginx nginx -s reload
-${GREEN}════════════════════════════════════════════════════════════════════${NC}
-EOF
+info "AI stack is running on ${VM_IP}"
+info "Open WebUI    → http://${VM_IP}:3000"
+info "AnythingLLM   → http://${VM_IP}:3001"
+info "Ollama API    → http://${VM_IP}:11434"
+info "MCPO Proxy    → http://${VM_IP}:8081/docs"
+info "SearXNG       → http://${VM_IP}:8086"
+info "MCPO_API_KEY  → $(cat /opt/ai-stack/mcpo-api-key.txt 2>/dev/null || echo "${MCPO_API_KEY}")"
+info "Next: open http://${VM_IP}:3000, create admin account, verify tool servers (green)"
