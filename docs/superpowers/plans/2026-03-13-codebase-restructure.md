@@ -445,8 +445,20 @@ Note the exact pattern used in each file (may differ).
 
 - [ ] **Step 2: Update config.env path in deploy-stack.sh**
 
-Find: `source "$(dirname "$0")/config.env"`
-Change to: `source "$(dirname "$0")/../config.env"`
+`deploy-stack.sh` uses a two-variable pattern: `CONFIG="${SCRIPT_DIR}/config.env"` (not a direct `source` call). Use this sed:
+
+```bash
+sed -i 's|CONFIG="${SCRIPT_DIR}/config.env"|CONFIG="${SCRIPT_DIR}/../config.env"|g' \
+  proxmox-ai-stack/lxc/deploy-stack.sh
+```
+
+Then verify:
+
+```bash
+grep -n 'CONFIG=' proxmox-ai-stack/lxc/deploy-stack.sh
+```
+
+Expected: `CONFIG="${SCRIPT_DIR}/../config.env"`
 
 - [ ] **Step 3: Update config.env path in wire-to-vms.sh**
 
