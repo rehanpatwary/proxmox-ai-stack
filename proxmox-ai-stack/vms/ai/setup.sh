@@ -138,6 +138,7 @@ source "${SCRIPT_DIR}/generate-compose.sh"
 
 # Generate MCPO API key if not injected via ENV_BLOCK
 MCPO_API_KEY="${MCPO_API_KEY:-$(openssl rand -hex 16)}"
+BRAVE_API_KEY="${BRAVE_API_KEY:-}"   # optional — enables Brave Search MCP server
 
 # ---------------------------------------------------------------------------
 #  Functions
