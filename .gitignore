@@ -1,0 +1,30 @@
+# =============================================================================
+#  .gitignore — Proxmox AI Stack
+# =============================================================================
+
+# Never commit populated secrets — config.env with empty secrets is safe to commit.
+# Use init_secrets.sh to populate locally.
+# If you accidentally commit secrets, rotate them immediately.
+
+# Backup files created by text editors
+*.bak
+*.swp
+*.orig
+*~
+
+# macOS filesystem noise
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Local override files (create these for machine-specific config that should not be shared)
+config.local.env
+*.local.env
+
+# Logs produced during deployment
+*.log
+deploy.log
+
+# Temporary files
+/tmp/
+*.tmp
