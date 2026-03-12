@@ -162,6 +162,10 @@ declare -a APPS=(
   "499|it-tools|alpine-it-tools|ct|1|512|4|10|Dev|IT Tools collection"
 )
 
+# Global arrays used by interactive phase selection
+declare -a SELECTED_ENTRIES=()
+declare -a MISSING_ENTRIES=()
+
 # ========================= FUNCTIONS =========================
 
 check_root() {
@@ -202,6 +206,22 @@ mark_deployed() {
 vmid_in_use() {
   local vmid="$1"
   pct status "$vmid" >/dev/null 2>&1 || qm status "$vmid" >/dev/null 2>&1
+}
+
+# Returns: new | running | stopped | missing
+get_app_status() {
+  local vmid="$1" type="$2" name="$3"
+  if vmid_in_use "$vmid"; then
+    if [[ "$type" == "vm" ]]; then
+      qm status "$vmid" 2>/dev/null | grep -q "running" && echo "running" || echo "stopped"
+    else
+      pct status "$vmid" 2>/dev/null | grep -q "running" && echo "running" || echo "stopped"
+    fi
+  elif is_deployed "$name"; then
+    echo "missing"
+  else
+    echo "new"
+  fi
 }
 
 parse_app() {
@@ -304,7 +324,152 @@ deploy_app() {
   fi
 }
 
-deploy_phase() {
+# Presents an interactive checkbox UI for a phase.
+# Populates globals SELECTED_ENTRIES (new apps chosen) and MISSING_ENTRIES (state-file orphans).
+# Returns 1 if the user cancels (q), 0 otherwise.
+select_phase_apps() {
+  local phase="$1"
+  local phase_name=""
+  case $phase in
+    1) phase_name="Infrastructure" ;;
+    2) phase_name="AI & LLM Stack" ;;
+    3) phase_name="Automation & Agentic AI" ;;
+    4) phase_name="Business, Finance & CRM" ;;
+    5) phase_name="Documents & Knowledge" ;;
+    6) phase_name="Communication & Collaboration" ;;
+    7) phase_name="Monitoring & Analytics" ;;
+    8) phase_name="Workspace & Storage" ;;
+    9) phase_name="Security & Identity" ;;
+    10) phase_name="Dev & Code" ;;
+  esac
+
+  SELECTED_ENTRIES=()
+  MISSING_ENTRIES=()
+
+  # Collect entries and Proxmox status for this phase
+  local -a _pe=()   # phase entries
+  local -a _ps=()   # phase statuses
+  for entry in "${APPS[@]}"; do
+    parse_app "$entry"
+    if [[ "$A_PHASE" == "$phase" ]]; then
+      _pe+=("$entry")
+      _ps+=("$(get_app_status "$A_VMID" "$A_TYPE" "$A_NAME")")
+    fi
+  done
+
+  # Build index list of "new" apps; pre-select all
+  local -a _ni=()   # indices into _pe that are "new"
+  local -a _sel=()  # parallel selection flags
+  for i in "${!_pe[@]}"; do
+    if [[ "${_ps[$i]}" == "new" ]]; then
+      _ni+=("$i")
+      _sel+=("1")
+    fi
+  done
+
+  while true; do
+    clear
+    echo ""
+    echo -e "${CYAN}${BOLD}══════════════════════════════════════════════════════════════${NC}"
+    echo -e "${CYAN}${BOLD}  Phase $phase: $phase_name — Select apps to install${NC}"
+    echo -e "${CYAN}${BOLD}══════════════════════════════════════════════════════════════${NC}"
+    echo ""
+    printf "  %-3s  %-13s %-20s %-4s %-7s %-5s %-10s %s\n" \
+      "#" "Select" "Name" "CPU" "RAM" "Disk" "Status" "Description"
+    printf "  %-3s  %-13s %-20s %-4s %-7s %-5s %-10s %s\n" \
+      "──" "─────────────" "────────────────────" "───" "──────" "────" "──────────" "────────────"
+    echo ""
+
+    local _num=0
+    for i in "${!_pe[@]}"; do
+      local _entry="${_pe[$i]}"
+      local _st="${_ps[$i]}"
+      parse_app "$_entry"
+      case "$_st" in
+        new)
+          local _ni_idx=-1
+          for _j in "${!_ni[@]}"; do
+            [[ "${_ni[$_j]}" == "$i" ]] && _ni_idx=$_j && break
+          done
+          _num=$(( _num + 1 ))
+          if [[ "${_sel[$_ni_idx]}" == "1" ]]; then
+            printf "  %-3s  " "$_num"
+            echo -ne "${GREEN}[●]${NC}          "
+            printf " %-20s %-4s %-7s %-5s %-10s %s\n" \
+              "$A_NAME" "${A_CPU}c" "${A_RAM}M" "${A_DISK}G" "new" "$A_DESC"
+          else
+            printf "  %-3s  [ ]          " "$_num"
+            printf " %-20s %-4s %-7s %-5s %-10s %s\n" \
+              "$A_NAME" "${A_CPU}c" "${A_RAM}M" "${A_DISK}G" "new" "$A_DESC"
+          fi
+          ;;
+        running)
+          printf "  %-3s  " ""
+          echo -ne "${GREEN}[✓ skip]${NC}     "
+          printf " %-20s %-4s %-7s %-5s %-10s %s\n" \
+            "$A_NAME" "${A_CPU}c" "${A_RAM}M" "${A_DISK}G" "running" "$A_DESC"
+          ;;
+        stopped)
+          printf "  %-3s  " ""
+          echo -ne "${YELLOW}[✓ skip]${NC}     "
+          printf " %-20s %-4s %-7s %-5s %-10s %s\n" \
+            "$A_NAME" "${A_CPU}c" "${A_RAM}M" "${A_DISK}G" "stopped" "$A_DESC"
+          ;;
+        missing)
+          printf "  %-3s  " ""
+          echo -ne "${RED}[! MISSING]${NC}  "
+          printf " %-20s %-4s %-7s %-5s %-10s %s\n" \
+            "$A_NAME" "${A_CPU}c" "${A_RAM}M" "${A_DISK}G" "MISSING" "$A_DESC"
+          ;;
+      esac
+    done
+
+    echo ""
+    echo -e "  Legend: ${GREEN}[●]${NC} selected  [ ] unselected  ${GREEN}[✓ skip]${NC} in Proxmox  ${RED}[! MISSING]${NC} state mismatch"
+    echo ""
+
+    local _sel_count=0
+    for _s in ${_sel[@]+"${_sel[@]}"}; do
+      [[ "$_s" == "1" ]] && _sel_count=$(( _sel_count + 1 ))
+    done
+    echo -e "  ${BOLD}${_sel_count} app(s) selected${NC}"
+    echo ""
+    echo "  Type number(s) to toggle (e.g. 1 3), a=select all, n=none, Enter=deploy, q=cancel"
+    read -rp "  > " _input
+
+    case "$_input" in
+      "")
+        for _j in "${!_ni[@]}"; do
+          [[ "${_sel[$_j]}" == "1" ]] && SELECTED_ENTRIES+=("${_pe[${_ni[$_j]}]}")
+        done
+        for i in "${!_pe[@]}"; do
+          [[ "${_ps[$i]}" == "missing" ]] && MISSING_ENTRIES+=("${_pe[$i]}")
+        done
+        return 0
+        ;;
+      q|Q) return 1 ;;
+      a|A) for _j in "${!_sel[@]}"; do _sel[$_j]=1; done ;;
+      n|N) for _j in "${!_sel[@]}"; do _sel[$_j]=0; done ;;
+      *)
+        for _tok in $_input; do
+          if [[ "$_tok" =~ ^[0-9]+$ ]]; then
+            local _idx=$(( _tok - 1 ))
+            if [[ $_idx -ge 0 && $_idx -lt ${#_ni[@]} ]]; then
+              if [[ "${_sel[$_idx]}" == "1" ]]; then
+                _sel[$_idx]=0
+              else
+                _sel[$_idx]=1
+              fi
+            fi
+          fi
+        done
+        ;;
+    esac
+  done
+}
+
+# Batch (non-interactive) deploy for a phase — used by deploy_all()
+_deploy_phase_batch() {
   local phase="$1"
   local phase_name=""
   case $phase in
@@ -328,9 +493,9 @@ deploy_phase() {
     parse_app "$entry"
     if [[ "$A_PHASE" == "$phase" ]]; then
       if deploy_app "$entry"; then
-        ((count++))
+        count=$(( count + 1 ))
       else
-        ((failed++))
+        failed=$(( failed + 1 ))
       fi
     fi
   done
@@ -339,13 +504,68 @@ deploy_phase() {
   log "Phase $phase complete: $count deployed, $failed failed"
 }
 
+# Interactive deploy for a phase — shows checkbox UI, handles missing entries
+deploy_phase() {
+  local phase="$1"
+
+  if ! select_phase_apps "$phase"; then
+    echo ""
+    info "Cancelled."
+    return 0
+  fi
+
+  # Handle state-file orphans (in state but not in Proxmox)
+  for entry in ${MISSING_ENTRIES[@]+"${MISSING_ENTRIES[@]}"}; do
+    parse_app "$entry"
+    echo ""
+    echo -e "  ${YELLOW}[! MISSING]${NC} ${BOLD}$A_NAME${NC} is in the state file but not found in Proxmox."
+    read -rp "  [r]einstall / [s]kip (default: s): " _choice
+    case "${_choice,,}" in
+      r)
+        sed -i "/^${A_NAME}$/d" "$DEPLOY_STATE"
+        SELECTED_ENTRIES+=("$entry")
+        ;;
+      *)
+        info "Skipping $A_NAME"
+        ;;
+    esac
+  done
+
+  if [[ ${#SELECTED_ENTRIES[@]} -eq 0 ]]; then
+    echo ""
+    info "Nothing to deploy."
+    return 0
+  fi
+
+  echo ""
+  local _count=${#SELECTED_ENTRIES[@]}
+  read -rp "Install ${_count} app(s)? (Y/n): " _confirm
+  if [[ "${_confirm,,}" == "n" ]]; then
+    info "Cancelled."
+    return 0
+  fi
+
+  local deployed=0
+  local failed=0
+  for entry in "${SELECTED_ENTRIES[@]}"; do
+    if deploy_app "$entry"; then
+      deployed=$(( deployed + 1 ))
+    else
+      failed=$(( failed + 1 ))
+    fi
+  done
+
+  echo ""
+  log "Phase $phase complete: $deployed deployed, $failed failed"
+}
+
 deploy_all() {
   header "FULL STACK DEPLOYMENT"
   info "Deploying all ${#APPS[@]} applications across 10 phases"
   echo ""
 
   for phase in $(seq 1 10); do
-    deploy_phase "$phase"
+    _deploy_phase_batch "$phase"
   done
 
   show_summary

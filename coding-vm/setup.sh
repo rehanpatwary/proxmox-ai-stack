@@ -57,6 +57,13 @@ error()   { echo -e "${RED}[ERROR]${NC} $*"; exit 1; }
 [[ $EUID -ne 0 ]] && error "Run as root:  sudo -E bash setup.sh"
 
 # ---------------------------------------------------------------------------
+#  Common VM bootstrap (chrony, journald limits, TRIM, admin tools)
+#  Runs once; idempotent on re-runs.
+# ---------------------------------------------------------------------------
+# shellcheck source=../common/bootstrap.sh
+source "$(dirname "$0")/../common/bootstrap.sh"
+
+# ---------------------------------------------------------------------------
 #  Config with safe defaults
 # ---------------------------------------------------------------------------
 AI_VM_IP="${AI_VM_IP:-192.168.1.10}"
