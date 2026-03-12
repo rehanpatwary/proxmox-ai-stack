@@ -224,7 +224,7 @@ fi
 if [[ $DRY_RUN -eq 1 ]]; then
     section "DRY RUN — would deploy: $VM_NAME"
     echo "  Target IP  : $VM_IP"
-    echo "  Script dir : $SCRIPT_DIR/$SUBDIR"
+    echo "  Script dir : $SCRIPT_DIR/../vms/$SUBDIR"
     echo ""
     echo "  Environment that would be exported:"
     build_env_block | sed 's/^/    /'
