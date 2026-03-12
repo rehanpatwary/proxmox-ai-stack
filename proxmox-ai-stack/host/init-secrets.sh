@@ -51,7 +51,7 @@ error() { echo -e "${RED}[ERROR]${NC} $*"; exit 1; }
 # ---------------------------------------------------------------------------
 #  Locate config.env relative to this script, not $PWD
 # ---------------------------------------------------------------------------
-CONFIG="$(cd "$(dirname "$0")" && pwd)/config.env"
+CONFIG="$(cd "$(dirname "$0")" && pwd)/../config.env"
 [[ ! -f "$CONFIG" ]] && error "config.env not found at: $CONFIG"
 
 # ---------------------------------------------------------------------------
