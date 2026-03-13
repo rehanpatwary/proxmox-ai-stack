@@ -147,8 +147,8 @@ deploy_vm() {
     (
         set -e
         wait_for_ssh "$host"
-        scp $SSH_OPTS -r "${SCRIPT_DIR}/../vms/${subdir}/" "${VM_USER}@${host}:/home/${VM_USER}/"
-        scp $SSH_OPTS -r "${SCRIPT_DIR}/../vms/common/" "${VM_USER}@${host}:/home/${VM_USER}/"
+        scp $SSH_OPTS -r "${SCRIPT_DIR}/../vms/${subdir}" "${VM_USER}@${host}:/home/${VM_USER}/"
+        scp $SSH_OPTS -r "${SCRIPT_DIR}/../vms/common" "${VM_USER}@${host}:/home/${VM_USER}/"
         local env_block
         env_block="$(build_env)"
         ssh $SSH_OPTS -t "${VM_USER}@${host}" "
