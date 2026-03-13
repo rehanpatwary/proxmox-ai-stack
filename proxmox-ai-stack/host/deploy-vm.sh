@@ -171,11 +171,11 @@ copy_scripts() {
     local subdir="$2"
 
     section "Copying scripts → ${VM_NAME} (${host})"
-    scp $SSH_OPTS -r "${SCRIPT_DIR}/../vms/${subdir}/" "${VM_USER}@${host}:/home/${VM_USER}/"
+    scp $SSH_OPTS -r "${SCRIPT_DIR}/../vms/${subdir}" "${VM_USER}@${host}:/home/${VM_USER}/"
     info "Scripts copied to /home/${VM_USER}/${subdir}/ ✓"
 
     # Copy shared utilities so setup.sh can source common/bootstrap.sh
-    scp $SSH_OPTS -r "${SCRIPT_DIR}/../vms/common/" "${VM_USER}@${host}:/home/${VM_USER}/"
+    scp $SSH_OPTS -r "${SCRIPT_DIR}/../vms/common" "${VM_USER}@${host}:/home/${VM_USER}/"
     info "Common scripts copied to /home/${VM_USER}/common/ ✓"
 }
 
